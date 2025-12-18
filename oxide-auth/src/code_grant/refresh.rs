@@ -556,6 +556,7 @@ impl BearerToken {
     pub fn to_json(&self) -> String {
         let remaining = self.0.until.signed_duration_since(Utc::now());
         let token_response = TokenResponse {
+            id_token: Some(self.0.id_token.clone()),
             access_token: Some(self.0.token.clone()),
             refresh_token: self.0.refresh.clone(),
             token_type: Some("bearer".to_owned()),

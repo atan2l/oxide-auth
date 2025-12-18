@@ -113,6 +113,7 @@ impl RefreshTokenSetup {
         let body: TokenResponse = serde_json::from_str(&body).expect("Expected valid json body");
         let duration = body.expires_in.unwrap();
         RefreshedToken {
+            id_token: body.id_token.expect("Expected an id_token"),
             token: body.access_token.expect("Expected a token"),
             refresh: body.refresh_token,
             until: Utc::now() + Duration::seconds(duration),

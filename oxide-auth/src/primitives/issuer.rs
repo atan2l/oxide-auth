@@ -37,6 +37,9 @@ pub trait Issuer {
 /// Token parameters returned to a client.
 #[derive(Clone, Debug)]
 pub struct IssuedToken {
+    /// The id token, for OIDC compliance
+    pub id_token: String,
+
     /// The bearer token
     pub token: String,
 
@@ -74,6 +77,9 @@ pub enum TokenType {
 /// Refresh token information returned to a client.
 #[derive(Clone, Debug)]
 pub struct RefreshedToken {
+    /// The new ID token.
+    pub id_token: String,
+    
     /// The bearer token.
     pub token: String,
 
@@ -219,8 +225,9 @@ impl IssuedToken {
     /// # fn refresh(&mut self, _: &str, _: Grant) -> Result<RefreshedToken, ()> { Err(()) }
     /// }
     /// ```
-    pub fn without_refresh(token: String, until: Time) -> Self {
+    pub fn without_refresh(token: String, id_token: String, until: Time) -> Self {
         IssuedToken {
+            id_token,
             token,
             refresh: None,
             until,
@@ -250,9 +257,10 @@ impl<G: TagGrant> Issuer for TokenMap<G> {
         // second.
         let next_usage = self.usage.wrapping_add(2);
 
-        let (access, refresh) = {
+        let (access, id_token, refresh) = {
             let access = self.generator.tag(self.usage, &grant)?;
             let refresh = self.generator.tag(self.usage.wrapping_add(1), &grant)?;
+            let id_token = self.generator.tag(self.usage.wrapping_add(2), &grant)?;
             debug_assert!(
                 access.len() > 0,
                 "An empty access token was generated, this is horribly insecure."
@@ -261,7 +269,7 @@ impl<G: TagGrant> Issuer for TokenMap<G> {
                 refresh.len() > 0,
                 "An empty refresh token was generated, this is horribly insecure."
             );
-            (access, refresh)
+            (access, id_token, refresh)
         };
 
         let until = grant.until;
@@ -274,6 +282,7 @@ impl<G: TagGrant> Issuer for TokenMap<G> {
         self.refresh.insert(refresh_key, token);
         self.usage = next_usage;
         Ok(IssuedToken {
+            id_token,
             token: access,
             refresh: Some(refresh),
             until,
@@ -321,6 +330,7 @@ impl<G: TagGrant> Issuer for TokenMap<G> {
 
         self.usage = tag.wrapping_add(1);
         Ok(RefreshedToken {
+            id_token: new_access.clone(),
             token: new_access,
             refresh: Some(new_refresh),
             until,
@@ -412,11 +422,14 @@ impl TokenSigner {
     fn refreshable_token(&self, grant: &Grant) -> Result<IssuedToken, ()> {
         let first_ctr = self.next_counter() as u64;
         let second_ctr = self.next_counter() as u64;
+        let third_crt = self.next_counter() as u64;
 
         let token = self.as_token().sign(first_ctr, grant)?;
         let refresh = self.as_refresh().sign(second_ctr, grant)?;
+        let id_token = self.as_id_token().sign(third_crt, grant)?;
 
         Ok(IssuedToken {
+            id_token,
             token,
             refresh: Some(refresh),
             until: grant.until,
@@ -426,10 +439,16 @@ impl TokenSigner {
 
     fn unrefreshable_token(&self, grant: &Grant) -> Result<IssuedToken, ()> {
         let counter = self.next_counter() as u64;
+        let second_ctr = self.next_counter() as u64;
 
         let token = self.as_token().sign(counter, grant)?;
+        let id_token = self.as_id_token().sign(second_ctr, grant)?;
 
-        Ok(IssuedToken::without_refresh(token, grant.until))
+        Ok(IssuedToken::without_refresh(token, id_token, grant.until))
+    }
+
+    fn as_id_token(&self) -> TaggedAssertion {
+        self.signer.tag("id_token")
     }
 
     fn as_token(&self) -> TaggedAssertion {

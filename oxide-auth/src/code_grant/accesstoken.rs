@@ -17,6 +17,10 @@ use crate::primitives::scope::Scope;
 /// Token Response
 #[derive(Deserialize, Serialize)]
 pub struct TokenResponse {
+    /// The ID token issued by the authorization server.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub id_token: Option<String>,
+
     /// The access token issued by the authorization server.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub access_token: Option<String>,
@@ -100,7 +104,7 @@ pub trait Extension {
     /// The input data comes from the extension data produced in the handling of the
     /// authorization code request.
     fn extend(&mut self, request: &dyn Request, data: Extensions)
-        -> std::result::Result<Extensions, ()>;
+              -> std::result::Result<Extensions, ()>;
 }
 
 impl Extension for () {
@@ -672,6 +676,7 @@ impl BearerToken {
     pub fn to_json(&self) -> String {
         let remaining = self.0.until.signed_duration_since(Utc::now());
         let token_response = TokenResponse {
+            id_token: Some(self.0.id_token.clone()),
             access_token: Some(self.0.token.clone()),
             refresh_token: self.0.refresh.clone(),
             token_type: Some("bearer".to_owned()),
@@ -693,6 +698,7 @@ mod tests {
     fn bearer_token_encoding() {
         let token = BearerToken(
             IssuedToken {
+                id_token: "id".into(),
                 token: "access".into(),
                 refresh: Some("refresh".into()),
                 until: Utc::now(),
@@ -704,6 +710,7 @@ mod tests {
         let json = token.to_json();
         let token = serde_json::from_str::<TokenResponse>(&json).unwrap();
 
+        assert_eq!(token.id_token, Some("id".to_owned()));
         assert_eq!(token.access_token, Some("access".to_owned()));
         assert_eq!(token.refresh_token, Some("refresh".to_owned()));
         assert_eq!(token.scope, Some("scope".to_owned()));
@@ -714,13 +721,14 @@ mod tests {
     #[test]
     fn no_refresh_encoding() {
         let token = BearerToken(
-            IssuedToken::without_refresh("access".into(), Utc::now()),
+            IssuedToken::without_refresh("access".into(), "id".into(), Utc::now()),
             "scope".parse().unwrap(),
         );
 
         let json = token.to_json();
         let token = serde_json::from_str::<TokenResponse>(&json).unwrap();
 
+        assert_eq!(token.id_token, Some("id".to_owned()));
         assert_eq!(token.access_token, Some("access".to_owned()));
         assert_eq!(token.refresh_token, None);
         assert_eq!(token.scope, Some("scope".to_owned()));
